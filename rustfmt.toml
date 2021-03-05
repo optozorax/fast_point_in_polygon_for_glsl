@@ -1,0 +1,12 @@
+unstable_features = true
+hard_tabs = true
+match_block_trailing_comma = true
+merge_imports = true
+newline_style = "Unix"
+overflow_delimited_expr = true
+reorder_impl_items = true
+reorder_imports = true
+group_imports = "StdExternalCrate"
+required_version = "2.0.0-rc.2"
+use_field_init_shorthand = true
+where_single_line = true

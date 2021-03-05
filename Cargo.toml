@@ -1,0 +1,23 @@
+[package]
+name = "fast_point_in_polygon_for_glsl"
+version = "0.1.0"
+authors = ["ilya sheprut <optozorax@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+geo = "0.14.2"
+geo-clipper = "0.4.0"
+geo-types = "0.6.0"
+line_intersection = { git = "https://github.com/triptec/line_intersection", commit = "8bd5433" }
+glam = { version = "0.12.0", features = ["serde"] }
+ordered-float = "2.1.1"
+itertools = "0.10.0"
+macroquad = { path = "../macroquad" }
+# macroquad = { git = "https://github.com/not-fl3/macroquad/", commit = "9f54da9" } # this not works because of new version of macroquad and lack of my understanding of cargo
+megaui-macroquad = "0.1.3"
+
+[patch.crates-io]
+macroquad = { path = "../macroquad" }
+# macroquad = { git = 'https://github.com/not-fl3/macroquad/', commit = "9f54da9" }
