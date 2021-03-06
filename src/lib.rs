@@ -3,13 +3,14 @@ use std::fmt;
 use geo::{
 	line_string,
 	map_coords::MapCoordsInplace,
-	prelude::{BoundingRect, Centroid, EuclideanLength, SimplifyVW},
+	prelude::{Area, BoundingRect, Centroid, EuclideanLength, SimplifyVW},
 	Line, LineString, MultiPolygon, Point, Polygon, Rect,
 };
-use geo_clipper::Clipper;
 use itertools::Itertools;
 use line_intersection::LineInterval;
 use ordered_float::NotNan;
+
+use crate::image::PolygonDrawer;
 
 #[derive(Clone, Debug, Copy)]
 pub enum LineSplitCheck {
@@ -74,6 +75,8 @@ pub enum PolygonFastPrecalculatorPart {
 	None,
 }
 
+// static mut counter: i32 = 0;
+
 impl PolygonFastPrecalculatorPart {
 	pub fn calc(mut polygon: MultiPolygon<f64>) -> Self {
 		// Simplify figure
@@ -128,7 +131,16 @@ impl PolygonFastPrecalculatorPart {
 
 		// This is more complex figure that should be reduced to triangle
 
-		let br = polygon.bounding_rect().unwrap().to_polygon();
+		let mut br = polygon.bounding_rect().unwrap();
+		br.set_min((
+			br.min().x - br.width() * 0.05,
+			br.min().y - br.height() * 0.05,
+		));
+		br.set_max((
+			br.max().x + br.width() * 0.05,
+			br.max().y + br.height() * 0.05,
+		));
+		let br = br.to_polygon();
 
 		let all_points = polygon
 			.0
@@ -144,6 +156,10 @@ impl PolygonFastPrecalculatorPart {
 
 		// For all lines in current figure, find best line that cut current polygons into 2 equivalent figures.
 		let best = all_lines
+			.filter(|line| {
+				line_string![line.start_point().into(), line.end_point().into()].euclidean_length()
+					> 0.0001
+			})
 			.map(|line| {
 				let interval = LineInterval::line(line);
 
@@ -178,20 +194,44 @@ impl PolygonFastPrecalculatorPart {
 				let polygon1 = Polygon::new(LineString::from(polygon1), vec![]);
 				let polygon2 = Polygon::new(LineString::from(polygon2), vec![]);
 
-				let result1 = polygon.intersection(&polygon1, 600000000.0);
-				let result2 = polygon.intersection(&polygon2, 600000000.0);
+				// test https://docs.rs/polygon2/0.3.0/polygon2/fn.intersection.html
+				// test https://crates.io/crates/clipping
+
+				// Not work on wasm because of C++... But this work with self-intersecting polygon
+				use geo_clipper::Clipper;
+				let mut result1 = polygon.intersection(&polygon1, 6000000000.0);
+				let mut result2 = polygon.intersection(&polygon2, 6000000000.0);
+
+				// Panics on self-intersecting polygon, but works with wasm
+				// use geo_booleanop::boolean::BooleanOp;
+				// let mut result1 = polygon.intersection(&polygon1);
+				// let mut result2 = polygon.intersection(&polygon2);
+
+				result1 = result1.simplifyvw(&0.0001);
+
+				// Remove figures that easier than triangle
+				result1 = MultiPolygon(
+					result1
+						.0
+						.into_iter()
+						.filter(|poly| poly.exterior().points_iter().count() > 3)
+						.collect(),
+				);
+
+				result2 = result2.simplifyvw(&0.0001);
+
+				// Remove figures that easier than triangle
+				result2 = MultiPolygon(
+					result2
+						.0
+						.into_iter()
+						.filter(|poly| poly.exterior().points_iter().count() > 3)
+						.collect(),
+				);
 
 				(line, result1, result2)
 			})
-			.filter(|(line, _, _)| {
-				line_string![line.start_point().into(), line.end_point().into()].euclidean_length()
-					> 0.0001
-			})
 			.filter_map(|(line, result1, result2)| {
-				pub fn mymax(a: f64, b: f64) -> f64 {
-					if a > b { a } else { b }
-				}
-
 				// Metric by points count (works good)
 				let a1 = result1
 					.iter()
@@ -205,17 +245,15 @@ impl PolygonFastPrecalculatorPart {
 					.count() as f64;
 
 				// Metric by area (works bad)
-				/*
-				let a1 = result1.unsigned_area();
-				let a2 = result2.unsigned_area();
-				*/
+				// let a1 = result1.unsigned_area();
+				// let a2 = result2.unsigned_area();
 
 				if a1 != 0.0 && a2 != 0.0 {
 					let current_val = mymax(a1 as f64 / a2 as f64, a2 as f64 / a1 as f64);
 					Some((line, result1, result2, current_val))
 				} else {
 					// For complicated triangles like Polygon::new(LineString::from(vec![Coordinate {x: 0.0, y: 0.6357827466666667, }, Coordinate {x: 0.7843839333333333, y: 0.38768687, }, Coordinate {x: 0.7245766583333333, y: 0.25446109, }, Coordinate {x: 1.0, y: 0.3194888166666667, }, Coordinate {x: 0.0, y: 0.6357827466666667, }, ]), vec![], );
-					if (a1 != 0.0 || a2 != 0.0) && a1 + a2 < all_points.len() as f64 {
+					if (a1 == 0.0 || a2 == 0.0) && a1 + a2 < all_points.len() as f64 {
 						Some((line, result1, result2, 1e100))
 					} else {
 						None
@@ -227,7 +265,21 @@ impl PolygonFastPrecalculatorPart {
 					.unwrap_or_else(|_| panic!("can't find delimiter line:\n{:#?}", polygon))
 			});
 
-		let mut best = best.unwrap_or_else(|| panic!("can't find delimiter line:\n{:#?}", polygon));
+		let mut best = best.unwrap_or_else(|| {
+			// For debug
+			let mut image = PolygonDrawer::new(1000);
+			image.add_multipolygon(polygon.clone(), (0, 0, 0));
+			image.draw_and_save("panic_result.png");
+			panic!("can't find delimiter line:\n{:#?}", polygon)
+		});
+
+		// For debug
+		// unsafe { counter  += 1; }
+		// let mut image = PolygonDrawer::new(1000);
+		// image.add_multipolygon(best.1.clone(), (255, 0, 0));
+		// image.add_multipolygon(best.2.clone(), (0, 0, 255));
+		// image.add_multipolygon(polygon.clone(), (0, 0, 0));
+		// image.draw_and_save(&format!("test/{:05}.png", unsafe { counter }));
 
 		// For safe best finding
 		/*
@@ -426,4 +478,152 @@ impl fmt::Display for PolygonFastPrecalculator {
 
 pub fn vec_to_multipolygon(array: Vec<(f64, f64)>) -> MultiPolygon<f64> {
 	MultiPolygon::from(vec![Polygon::new(LineString::from(array), vec![])])
+}
+
+pub(crate) fn mymax(a: f64, b: f64) -> f64 {
+	if a > b { a } else { b }
+}
+
+pub(crate) fn mymin(a: f64, b: f64) -> f64 {
+	if a < b { a } else { b }
+}
+
+// For debug
+pub(crate) mod image {
+	use std::{fs::File, io::BufWriter, path::Path};
+
+	use geo::{prelude::*, Coordinate, MultiPolygon, Point, Polygon};
+	use glam::Vec2;
+
+	use crate::{mymax, mymin};
+
+	pub struct ImageIterator {
+		x: usize,
+		y: usize,
+		w: usize,
+		h: usize,
+	}
+
+	impl Iterator for ImageIterator {
+		type Item = (usize, usize, Vec2);
+
+		fn next(&mut self) -> Option<Self::Item> {
+			if self.y == self.h {
+				return None;
+			}
+
+			let min = std::cmp::min(self.w, self.h) as f32;
+			let to_return = (
+				self.x,
+				self.y,
+				(Vec2::new(self.x as f32, self.y as f32) / min * 2. - Vec2::new(1., 1.)),
+			);
+
+			self.x += 1;
+			if self.x == self.w {
+				self.y += 1;
+				self.x = 0;
+			}
+			Some(to_return)
+		}
+	}
+
+	pub struct Image {
+		w: usize,
+		h: usize,
+		data: Vec<u8>,
+	}
+
+	impl Image {
+		pub fn new(w: usize, h: usize) -> Self {
+			Self {
+				w,
+				h,
+				data: vec![0; w * h * 3],
+			}
+		}
+
+		pub fn iter(&self) -> ImageIterator {
+			ImageIterator {
+				x: 0,
+				y: 0,
+				w: self.w,
+				h: self.h,
+			}
+		}
+
+		pub fn set_pixel(&mut self, x: usize, y: usize, color: (u8, u8, u8)) {
+			let offset = (x + y * self.w) * 3;
+			self.data[offset + 0] = color.0;
+			self.data[offset + 1] = color.1;
+			self.data[offset + 2] = color.2;
+		}
+
+		pub fn save(&self, filename: &str) {
+			let path = Path::new(filename);
+			let file = File::create(path).unwrap();
+			let ref mut wr = BufWriter::new(file);
+
+			let mut encoder = png::Encoder::new(wr, self.w as u32, self.h as u32);
+			encoder.set_color(png::ColorType::RGB);
+			encoder.set_depth(png::BitDepth::Eight);
+			let mut writer = encoder.write_header().unwrap();
+
+			writer.write_image_data(&self.data).unwrap();
+		}
+	}
+
+	pub struct PolygonDrawer {
+		image: Image,
+		polygons: Vec<(MultiPolygon<f64>, (u8, u8, u8))>,
+	}
+
+	impl PolygonDrawer {
+		pub fn new(size: usize) -> Self {
+			Self {
+				image: Image::new(size + 20, size + 20),
+				polygons: vec![],
+			}
+		}
+
+		pub fn add_polygon(&mut self, polygon: Polygon<f64>, color: (u8, u8, u8)) {
+			self.polygons.push((MultiPolygon::from(polygon), color));
+		}
+
+		pub fn add_multipolygon(&mut self, polygon: MultiPolygon<f64>, color: (u8, u8, u8)) {
+			self.polygons.push((polygon, color));
+		}
+
+		pub fn draw_and_save(&mut self, filename: &str) {
+			let mut rect = self.polygons[0].0.bounding_rect().unwrap();
+			for current in self
+				.polygons
+				.iter()
+				.filter_map(|(poly, _)| poly.bounding_rect())
+			{
+				let minx = mymin(current.min().x, rect.min().x);
+				let miny = mymin(current.min().y, rect.min().y);
+				rect.set_min(Coordinate::from((minx, miny)));
+
+				let maxx = mymax(current.max().x, rect.max().x);
+				let maxy = mymax(current.max().y, rect.max().y);
+				rect.set_max(Coordinate::from((maxx, maxy)));
+			}
+			for (x, y, _) in self.image.iter() {
+				let point = Point::new(
+					(x as f64 - 10.) / (self.image.w - 20) as f64 * rect.width(),
+					(y as f64 - 10.) / (self.image.w - 20) as f64 * rect.height(),
+				) + rect.min().into();
+
+				self.image.set_pixel(x, y, (255, 255, 255));
+				for (poly, color) in self.polygons.iter() {
+					if poly.contains(&point) {
+						self.image.set_pixel(x, y, *color);
+						break;
+					}
+				}
+			}
+			self.image.save(filename);
+		}
+	}
 }

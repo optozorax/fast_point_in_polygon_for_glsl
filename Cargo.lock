@@ -228,6 +228,7 @@ name = "fast_point_in_polygon_for_glsl"
 version = "0.1.0"
 dependencies = [
  "geo",
+ "geo-booleanop",
  "geo-clipper",
  "geo-types",
  "glam 0.12.0",
@@ -236,6 +237,16 @@ dependencies = [
  "macroquad",
  "megaui-macroquad",
  "ordered-float 2.1.1",
+ "png",
+]
+
+[[package]]
+name = "float_next_after"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fc612c5837986b7104a87a0df74a5460931f1c5274be12f8d0f40aa2f30d632"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -286,6 +297,18 @@ dependencies = [
  "geographiclib-rs",
  "num-traits",
  "rstar",
+]
+
+[[package]]
+name = "geo-booleanop"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4b68ff17c819296610e9eee41bdf5eb37f71b09870a95f0086e07d8fcc1f45b"
+dependencies = [
+ "float_next_after",
+ "geo-types",
+ "num-traits",
+ "robust",
 ]
 
 [[package]]
@@ -683,6 +706,12 @@ name = "regex-syntax"
 version = "0.6.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5eb417147ba9860a96cfe72a0b93bf88fee1744b5636ec99ab20c1aa9376581"
+
+[[package]]
+name = "robust"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "222155e5550abd9100afdcdefbd08aa1b856d226b60e327044ec21b1ece2f78e"
 
 [[package]]
 name = "rstar"
