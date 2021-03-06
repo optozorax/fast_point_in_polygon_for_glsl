@@ -26,7 +26,7 @@ impl RotateAroundCam {
 
 	fn new() -> Self {
 		Self {
-			alpha: PI / 2.,
+			alpha: -PI / 2.,
 			beta: PI / 2.,
 			r: 0.8,
 			previous_mouse: Vec2::default(),
@@ -224,7 +224,7 @@ impl PolygonShader {
 
 fn window_conf() -> Conf {
 	Conf {
-		window_title: "Portal visualization".to_owned(),
+		window_title: "Precalculate polygon".to_owned(),
 		high_dpi: true,
 		..Default::default()
 	}
@@ -235,6 +235,7 @@ async fn main() {
 	let mut cam = RotateAroundCam::new();
 
 	let init = vec![
+		// This is complex self-intersecting polygon, this not work with `geo_booleanop`
 		(3.1, 3.4),
 		(29.0, 10.0),
 		(0.0, 19.9),
@@ -244,6 +245,15 @@ async fn main() {
 		(16.7, 24.0),
 		(5.5, 10.8),
 		(19.4, 11.3),
+		
+		// (0., 8.),
+		// (5., 6.),
+		// (2., 4.),
+		// (7., 2.),
+		// (0., -1.),
+		// (-7., 2.),
+		// (-2., 4.),
+		// (-5., 6.),
 	];
 
 	let mut shader = PolygonShader::new(init);
